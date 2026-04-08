@@ -99,13 +99,13 @@ export async function getAvailableSlots(
 
     // Check for overlapping bookings
     const hasConflict = existingBookings.some((booking) => {
-      // For group classes, check participant count instead
+      // For multi-participant services, check participant count instead
       if (
-        service.type === "CLASS" &&
+        service.maxParticipants > 1 &&
         booking.serviceId === serviceId &&
         isEqual(booking.startTime, slotStartUtc)
       ) {
-        // Will be checked separately for class capacity
+        // Will be checked separately for capacity
         return false
       }
       // Time overlap check: booking overlaps if it starts before slot ends AND ends after slot starts
@@ -115,15 +115,18 @@ export async function getAvailableSlots(
       )
     })
 
-    // For classes, check capacity
-    if (service.type === "CLASS" && service.maxParticipants > 1) {
+    // For multi-participant services, check capacity and return spots info
+    if (service.maxParticipants > 1) {
       const classBookings = existingBookings.filter(
         (b) =>
           b.serviceId === serviceId && isEqual(b.startTime, slotStartUtc)
       )
+      const spotsLeft = service.maxParticipants - classBookings.length
       return {
         time,
-        available: classBookings.length < service.maxParticipants,
+        available: spotsLeft > 0,
+        spotsLeft,
+        maxParticipants: service.maxParticipants,
       }
     }
 

@@ -9,11 +9,24 @@ import { Search } from "lucide-react"
 
 export function TrainerList() {
   const [trainers, setTrainers] = useState<TrainerPublic[]>([])
+  const [allSpecialties, setAllSpecialties] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [selectedSpecialty, setSelectedSpecialty] = useState<string | null>(null)
 
+  // Fetch all trainers once on mount to build the full specialty list
   useEffect(() => {
+    fetch("/api/trainers")
+      .then((r) => r.json())
+      .then((all: TrainerPublic[]) => {
+        const specialties = [...new Set(all.flatMap((t) => t.specialties))].sort()
+        setAllSpecialties(specialties)
+      })
+  }, [])
+
+  // Fetch trainers (optionally filtered by specialty)
+  useEffect(() => {
+    setLoading(true)
     const url = selectedSpecialty
       ? `/api/trainers?specialty=${encodeURIComponent(selectedSpecialty)}`
       : "/api/trainers"
@@ -22,10 +35,6 @@ export function TrainerList() {
       .then(setTrainers)
       .finally(() => setLoading(false))
   }, [selectedSpecialty])
-
-  const allSpecialties = [
-    ...new Set(trainers.flatMap((t) => t.specialties)),
-  ].sort()
 
   const filtered = trainers.filter(
     (t) =>
@@ -36,7 +45,7 @@ export function TrainerList() {
       )
   )
 
-  if (loading) {
+  if (loading && trainers.length === 0) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {[1, 2, 3].map((i) => (

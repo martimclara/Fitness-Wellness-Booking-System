@@ -78,6 +78,15 @@ export function Header() {
                         Admin Dashboard
                       </Link>
                     )}
+                    {session.user.role === "TRAINER" && (
+                      <Link
+                        href="/trainer"
+                        className="block px-2 py-1.5 text-sm hover:bg-muted rounded"
+                        onClick={() => setDropdownOpen(false)}
+                      >
+                        Trainer Dashboard
+                      </Link>
+                    )}
                     <Link
                       href="/bookings"
                       className="block px-2 py-1.5 text-sm hover:bg-muted rounded"

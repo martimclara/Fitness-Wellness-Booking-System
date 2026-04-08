@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && echo 'export * from \"./client\"' > src/generated/prisma/index.ts && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "prisma:generate": "prisma generate && echo 'export * from \"./client\"' > src/generated/prisma/index.ts"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

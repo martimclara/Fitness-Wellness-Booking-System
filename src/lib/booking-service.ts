@@ -39,12 +39,13 @@ export async function createBooking(
       },
     })
 
-    if (service.type === "CLASS" && service.maxParticipants > 1) {
-      const sameClassBookings = conflicts.filter(
+    if (service.maxParticipants > 1) {
+      // Group class or multi-participant service — check capacity
+      const sameServiceBookings = conflicts.filter(
         (b: { serviceId: string }) => b.serviceId === serviceId
       )
-      if (sameClassBookings.length >= service.maxParticipants) {
-        throw new Error("This class is fully booked")
+      if (sameServiceBookings.length >= service.maxParticipants) {
+        throw new Error("This class is fully booked — no spots remaining")
       }
     } else if (conflicts.length > 0) {
       throw new Error("This time slot is no longer available")

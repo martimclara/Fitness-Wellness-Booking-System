@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { formatCents } from "@/lib/utils"
-import { Plus, Clock, Users } from "lucide-react"
+import { Plus, Clock, Users, Pencil, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 type AdminService = {
@@ -37,17 +37,20 @@ type AdminService = {
   trainers: { trainerProfile: { user: { name: string } } }[]
 }
 
+const emptyForm = {
+  name: "",
+  description: "",
+  type: "PERSONAL" as string,
+  durationMinutes: 60,
+  price: 5000,
+  maxParticipants: 1,
+}
+
 export default function AdminServicesPage() {
   const [services, setServices] = useState<AdminService[]>([])
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState({
-    name: "",
-    description: "",
-    type: "PERSONAL" as string,
-    durationMinutes: 60,
-    price: 5000,
-    maxParticipants: 1,
-  })
+  const [editingService, setEditingService] = useState<AdminService | null>(null)
+  const [form, setForm] = useState(emptyForm)
 
   function loadServices() {
     fetch("/api/admin/services")
@@ -57,21 +60,62 @@ export default function AdminServicesPage() {
 
   useEffect(() => { loadServices() }, [])
 
-  async function handleCreate(e: React.FormEvent) {
+  function openCreate() {
+    setEditingService(null)
+    setForm(emptyForm)
+    setOpen(true)
+  }
+
+  function openEdit(service: AdminService) {
+    setEditingService(service)
+    setForm({
+      name: service.name,
+      description: service.description ?? "",
+      type: service.type,
+      durationMinutes: service.durationMinutes,
+      price: service.price,
+      maxParticipants: service.maxParticipants,
+    })
+    setOpen(true)
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const res = await fetch("/api/admin/services", {
-      method: "POST",
+
+    const url = editingService
+      ? `/api/admin/services/${editingService.id}`
+      : "/api/admin/services"
+    const method = editingService ? "PATCH" : "POST"
+
+    const res = await fetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     })
 
     if (res.ok) {
-      toast.success("Service created")
+      toast.success(editingService ? "Service updated" : "Service created")
       setOpen(false)
-      setForm({ name: "", description: "", type: "PERSONAL", durationMinutes: 60, price: 5000, maxParticipants: 1 })
+      setEditingService(null)
+      setForm(emptyForm)
       loadServices()
     } else {
-      toast.error("Failed to create service")
+      toast.error(editingService ? "Failed to update service" : "Failed to create service")
+    }
+  }
+
+  async function handleDelete(service: AdminService) {
+    if (!confirm(`Deactivate "${service.name}"? It will no longer appear in public listings.`)) return
+
+    const res = await fetch(`/api/admin/services/${service.id}`, {
+      method: "DELETE",
+    })
+
+    if (res.ok) {
+      toast.success("Service deactivated")
+      loadServices()
+    } else {
+      toast.error("Failed to deactivate service")
     }
   }
 
@@ -85,18 +129,19 @@ export default function AdminServicesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Services</h1>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Service
-            </Button>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditingService(null) }}>
+          <DialogTrigger
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
+            onClick={openCreate}
+          >
+            <Plus className="h-4 w-4" />
+            Add Service
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>New Service</DialogTitle>
+              <DialogTitle>{editingService ? "Edit Service" : "New Service"}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleCreate} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Name</Label>
                 <Input
@@ -159,7 +204,9 @@ export default function AdminServicesPage() {
                   />
                 </div>
               </div>
-              <Button type="submit" className="w-full">Create Service</Button>
+              <Button type="submit" className="w-full">
+                {editingService ? "Save Changes" : "Create Service"}
+              </Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -167,7 +214,7 @@ export default function AdminServicesPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {services.map((service) => (
-          <Card key={service.id}>
+          <Card key={service.id} className={!service.isActive ? "opacity-60" : ""}>
             <CardContent className="p-4 space-y-3">
               <div className="flex items-start justify-between">
                 <div>
@@ -176,8 +223,13 @@ export default function AdminServicesPage() {
                     {typeLabels[service.type]}
                   </Badge>
                 </div>
-                <span className="font-bold">{formatCents(service.price)}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold">{formatCents(service.price)}</span>
+                </div>
               </div>
+              {service.description && (
+                <p className="text-sm text-muted-foreground">{service.description}</p>
+              )}
               <div className="flex gap-4 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
@@ -190,9 +242,31 @@ export default function AdminServicesPage() {
                   </span>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                {service.trainers.length} trainer{service.trainers.length !== 1 ? "s" : ""} assigned
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  {service.trainers.length} trainer{service.trainers.length !== 1 ? "s" : ""} assigned
+                </p>
+                <div className="flex gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => openEdit(service)}
+                    title="Edit service"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  {service.isActive && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDelete(service)}
+                      title="Deactivate service"
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardContent>
           </Card>
         ))}

@@ -9,15 +9,19 @@ export async function GET() {
   const { error } = await requireRole("ADMIN")
   if (error) return error
 
-  const trainers = await prisma.trainerProfile.findMany({
-    include: {
-      user: { select: { id: true, name: true, email: true, image: true } },
-      services: { include: { service: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  })
-
-  return NextResponse.json(trainers)
+  try {
+    const trainers = await prisma.trainerProfile.findMany({
+      include: {
+        user: { select: { id: true, name: true, email: true, image: true, isBlocked: true } },
+        services: { include: { service: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    })
+    return NextResponse.json(trainers)
+  } catch (err) {
+    console.error("[admin/trainers GET]", err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
 }
 
 export async function POST(request: Request) {
@@ -33,16 +37,22 @@ export async function POST(request: Request) {
 
   const { name, email, bio, photo, specialties, certifications, yearsExperience, serviceIds } = parsed.data
 
+  // Generate a readable temporary password for new users
+  const tempPassword = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6).toUpperCase()
+  let isNewUser = false
+
   // Create user + trainer profile in transaction
   const trainer = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     let user = await tx.user.findUnique({ where: { email } })
 
     if (!user) {
-      const tempPassword = await bcrypt.hash(Math.random().toString(36), 12)
+      isNewUser = true
+      const hashedPassword = await bcrypt.hash(tempPassword, 12)
       user = await tx.user.create({
-        data: { name, email, passwordHash: tempPassword, role: "TRAINER" },
+        data: { name, email, passwordHash: hashedPassword, role: "TRAINER" },
       })
     } else {
+      // Existing user — promote to trainer role
       await tx.user.update({
         where: { id: user.id },
         data: { role: "TRAINER" },
@@ -70,5 +80,8 @@ export async function POST(request: Request) {
     return profile
   })
 
-  return NextResponse.json(trainer, { status: 201 })
+  return NextResponse.json(
+    { ...trainer, tempPassword: isNewUser ? tempPassword : undefined },
+    { status: 201 }
+  )
 }

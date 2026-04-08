@@ -34,6 +34,8 @@ export type TrainerPublic = {
 export type TimeSlot = {
   time: string // "09:00"
   available: boolean
+  spotsLeft?: number // for group classes: remaining spots
+  maxParticipants?: number // for group classes: total capacity
 }
 
 export type BookingWithDetails = Booking & {
