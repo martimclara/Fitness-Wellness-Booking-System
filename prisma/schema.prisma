@@ -1,0 +1,280 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── AUTH & USERS ───────────────────────────────────────
+
+enum Role {
+  CUSTOMER
+  TRAINER
+  ADMIN
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  emailVerified  DateTime?
+  name           String?
+  phone          String?
+  image          String?
+  passwordHash   String?
+  role           Role      @default(CUSTOMER)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  accounts       Account[]
+  sessions       Session[]
+  bookings       Booking[]        @relation("CustomerBookings")
+  trainerProfile TrainerProfile?
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─── TRAINERS ───────────────────────────────────────────
+
+model TrainerProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  bio             String?  @db.Text
+  photo           String?
+  specialties     String[]
+  certifications  String[]
+  yearsExperience Int      @default(0)
+  color           String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  services          ServiceOnTrainer[]
+  schedules         Schedule[]
+  scheduleOverrides ScheduleOverride[]
+  bookings          Booking[]          @relation("TrainerBookings")
+
+  @@map("trainer_profiles")
+}
+
+// ─── SERVICES ───────────────────────────────────────────
+
+enum ServiceType {
+  CLASS
+  PERSONAL
+  STUDIO
+}
+
+model Service {
+  id              String      @id @default(cuid())
+  name            String
+  description     String?     @db.Text
+  type            ServiceType
+  durationMinutes Int
+  price           Int // cents (EUR)
+  maxParticipants Int         @default(1)
+  color           String?
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  trainers ServiceOnTrainer[]
+  bookings Booking[]
+
+  @@map("services")
+}
+
+model ServiceOnTrainer {
+  id               String @id @default(cuid())
+  serviceId        String
+  trainerProfileId String
+
+  service        Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  trainerProfile TrainerProfile @relation(fields: [trainerProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, trainerProfileId])
+  @@map("services_on_trainers")
+}
+
+// ─── SCHEDULES ──────────────────────────────────────────
+
+model Schedule {
+  id               String  @id @default(cuid())
+  trainerProfileId String
+  dayOfWeek        Int // 0=Sunday, 6=Saturday
+  startTime        String // "09:00" in Europe/Lisbon
+  endTime          String // "17:00" in Europe/Lisbon
+  isActive         Boolean @default(true)
+
+  trainerProfile TrainerProfile @relation(fields: [trainerProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([trainerProfileId, dayOfWeek, startTime])
+  @@map("schedules")
+}
+
+model ScheduleOverride {
+  id               String   @id @default(cuid())
+  trainerProfileId String
+  date             DateTime @db.Date
+  startTime        String? // null = entire day blocked
+  endTime          String?
+  isBlocked        Boolean  @default(true)
+  reason           String?
+
+  trainerProfile TrainerProfile @relation(fields: [trainerProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([trainerProfileId, date, startTime])
+  @@map("schedule_overrides")
+}
+
+// ─── BOOKINGS ───────────────────────────────────────────
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+  RESCHEDULED
+}
+
+model Booking {
+  id                 String        @id @default(cuid())
+  customerId         String
+  trainerProfileId   String
+  serviceId          String
+  startTime          DateTime // UTC
+  endTime            DateTime // UTC
+  status             BookingStatus @default(PENDING_PAYMENT)
+  notes              String?
+  cancellationReason String?
+  version            Int           @default(1) // optimistic locking
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  customer       User           @relation("CustomerBookings", fields: [customerId], references: [id])
+  trainerProfile TrainerProfile @relation("TrainerBookings", fields: [trainerProfileId], references: [id])
+  service        Service        @relation(fields: [serviceId], references: [id])
+  payment        Payment?
+  reminders      Reminder[]
+
+  @@index([trainerProfileId, startTime, endTime])
+  @@index([customerId, startTime])
+  @@index([status])
+  @@map("bookings")
+}
+
+// ─── PAYMENTS ───────────────────────────────────────────
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  FAILED
+}
+
+model Payment {
+  id                    String        @id @default(cuid())
+  bookingId             String        @unique
+  stripePaymentIntentId String        @unique
+  amount                Int // cents (EUR)
+  currency              String        @default("eur")
+  status                PaymentStatus @default(PENDING)
+  refundedAmount        Int           @default(0)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@map("payments")
+}
+
+// ─── NOTIFICATIONS ──────────────────────────────────────
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMATION
+  BOOKING_CANCELLATION
+  BOOKING_REMINDER
+  BOOKING_RESCHEDULED
+  PAYMENT_RECEIPT
+}
+
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String
+  channel   NotificationChannel
+  type      NotificationType
+  subject   String?
+  body      String              @db.Text
+  sentAt    DateTime?
+  failedAt  DateTime?
+  error     String?
+  createdAt DateTime            @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model Reminder {
+  id          String              @id @default(cuid())
+  bookingId   String
+  scheduledAt DateTime
+  sentAt      DateTime?
+  channel     NotificationChannel
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, scheduledAt, channel])
+  @@map("reminders")
+}
